@@ -1,0 +1,55 @@
+name: Build GoMobile version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version Overwrite
+        required: false
+
+env:
+  VERSION: ${{ github.event.inputs.version || (startsWith(github.ref, 'refs/tags/') && github.ref || '') }}
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android Platform
+        run: |
+          sdkmanager "platform-tools" > /dev/null 2>&1
+          sdkmanager "platforms;android-29" > /dev/null 2>&1
+          sdkmanager "build-tools;29.0.2"
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r21d
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '^1.23'
+      - name: Install Gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          go get golang.org/x/mobile/cmd/gobind
+          go get golang.org/x/mobile/cmd/gomobile
+          gomobile init
+        env:
+          GOPROXY: https://proxy.golang.org,direct
+          GO111MODULE: "on"
+      - name: Build Android .AAR library
+        run: |
+          gomobile bind -v -target=android/arm,android/arm64,android/386,android/amd64 -o soundclouddl.aar .
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_TOOLCHAIN: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+      - name: Upload .AAR directly
+        uses: actions/upload-artifact@v4
+        with:
+          name: gomobile_soundcloudv2api_android_aar_${{ env.VERSION || 'default' }}.aar
+          path: soundclouddl.aar
